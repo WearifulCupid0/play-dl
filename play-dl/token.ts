@@ -1,3 +1,4 @@
+import { setDeezerOptions } from './Deezer';
 import { setUserAgent } from './Request/useragent';
 import { setSoundCloudToken } from './SoundCloud';
 import { setSpotifyToken } from './Spotify';
@@ -15,6 +16,9 @@ interface tokenOptions {
     };
     youtube?: {
         cookie: string;
+    };
+    deezer?: {
+        blowfish: string;
     };
     useragent?: string[];
 }
@@ -58,5 +62,6 @@ export async function setToken(options: tokenOptions) {
     if (options.spotify) await setSpotifyToken(options.spotify);
     if (options.soundcloud) setSoundCloudToken(options.soundcloud);
     if (options.youtube) setCookieToken(options.youtube);
+    if (options.deezer) setDeezerOptions(options.deezer);
     if (options.useragent) setUserAgent(options.useragent);
 }

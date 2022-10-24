@@ -1,7 +1,18 @@
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import { URL } from 'node:url';
 import { request, request_resolve_redirect } from '../Request';
-import { DeezerAlbum, DeezerPlaylist, DeezerTrack } from './classes';
-
+import { DeezerAlbum, DeezerPlaylist, DeezerStream, DeezerTrack } from './classes';
+let deezerData: DeezerDataOptions;
+if (existsSync('.data/deezer.data')) {
+    deezerData = JSON.parse(readFileSync('.data/deezer.data', 'utf-8'));
+}
+interface DeezerDataOptions {
+    api_token?: string;
+    session_id?: string;
+    license_token?: string;
+    blowfish: string;
+}
 interface TypeData {
     type: 'track' | 'playlist' | 'album' | 'search' | false;
     id?: string;
@@ -204,7 +215,7 @@ export async function dz_search(query: string, options: DeezerSearchOptions): Pr
     if (limit > 100) throw new Error('The maximum search limit for Deezer is 100');
     if (limit < 1) throw new Error('The minimum search limit for Deezer is 1');
     if (type !== 'track' && type !== 'album' && type != 'playlist')
-        throw new Error(`"${type}" is not a valid Deezer search type`);
+        throw new Error(`'${type}' is not a valid Deezer search type`);
 
     query_ = encodeURIComponent(query_);
     const response = await request(
@@ -257,13 +268,13 @@ export async function dz_advanced_track_search(options: DeezerAdvancedSearchOpti
     if (limit < 1) throw new Error('The minimum search limit for Deezer is 1');
 
     const metadata: string[] = [];
-    if (options.artist) metadata.push(`artist:"${encodeURIComponent(options.artist.trim())}"`);
+    if (options.artist) metadata.push(`artist:'${encodeURIComponent(options.artist.trim())}'`);
 
-    if (options.album) metadata.push(`album:"${encodeURIComponent(options.album.trim())}"`);
+    if (options.album) metadata.push(`album:'${encodeURIComponent(options.album.trim())}'`);
 
-    if (options.title) metadata.push(`track:"${encodeURIComponent(options.title.trim())}"`);
+    if (options.title) metadata.push(`track:'${encodeURIComponent(options.title.trim())}'`);
 
-    if (options.label) metadata.push(`label:"${encodeURIComponent(options.label.trim())}"`);
+    if (options.label) metadata.push(`label:'${encodeURIComponent(options.label.trim())}'`);
 
     if (!isNaN(Number(options.minDurationInSec))) metadata.push(`dur_min:${options.minDurationInSec}`);
 
@@ -290,6 +301,137 @@ export async function dz_advanced_track_search(options: DeezerAdvancedSearchOpti
     const results = jsonData.data.map((track: any) => new DeezerTrack(track, true));
 
     return results;
+}
+
+/**
+ * Main Function for creating a Stream of deezer
+ * @param url deezer url
+ * @returns Deezer Stream
+ */
+export async function stream(url: string): Promise<DeezerStream> {
+    if (!deezerData) throw new Error('You have to provide a blowfish to play from Deezer.');
+    const data = await deezer(url);
+
+    if (!(data instanceof DeezerTrack)) throw new Error('Streams can only be created from a track.');
+    return stream_from_info(data);
+}
+
+/**
+ * Function for creating a Stream of deezer using a Deezer Track Class
+ * @param data Deezer Track Class
+ * @returns Deezer Stream
+ */
+export async function stream_from_info(track: DeezerTrack): Promise<DeezerStream> {
+    if (!deezerData) throw new Error('You have to provide a blowfish to play from Deezer.');
+    if (!deezerData.api_token) {
+        const obj = await getCredentials();
+        deezerData.api_token = obj.api_token;
+        deezerData.license_token = obj.license_token;
+        deezerData.session_id = obj.session_id;
+        return stream_from_info(track);
+    }
+    const songData = await request(`https://www.deezer.com/ajax/gw-light.php?api_token=${deezerData.api_token}&method=song.getData&input=3&api_version=1.0&cid=550330597`, {
+        method: 'POST',
+        body: JSON.stringify({
+            SNG_ID: track.id,
+        }),
+        headers: {
+            cookie: `sid=${deezerData.session_id}`
+        }
+    }).catch((e) => {
+        return e;
+    });
+    if (songData instanceof Error) throw songData;
+    const jsonSongData = JSON.parse(songData);
+    if (needUpdateToken(jsonSongData)) {
+        const obj = await getCredentials();
+        deezerData.api_token = obj.api_token;
+        deezerData.license_token = obj.license_token;
+        deezerData.session_id = obj.session_id;
+        return stream_from_info(track);
+    }
+    const trackToken = jsonSongData.results?.TRACK_TOKEN;
+    if (!trackToken) throw new Error('Failed to find Deezer track token.');
+    const mediaData = await request('https://media.deezer.com/v1/get_url', {
+        method: 'POST',
+        body: buildMediaPayload(trackToken),
+    }).catch((e) => {
+        return e;
+    });
+    if (mediaData instanceof Error) throw mediaData;
+    const jsonMediaData = JSON.parse(mediaData);
+    const url = jsonMediaData.data?.[0]?.media?.[0]?.sources?.[0]?.url;
+    if (!url) throw new Error('Failed to find Deezer track media url.');
+    return new DeezerStream(url, createTrackKey(track.id.toString()));
+}
+
+function createTrackKey(id: string) {
+    const md5 = createHash('md5').update(id, 'ascii').digest('hex');
+    let key = '';
+
+    for (let i = 0; i < 16; i++) {
+      key += String.fromCharCode(
+        md5.charCodeAt(i) ^ md5.charCodeAt(i + 16) ^ deezerData.blowfish.charCodeAt(i)
+      );
+    }
+
+    return key;
+}
+
+function buildMediaPayload(token: string): string {
+    return JSON.stringify({
+        license_token: deezerData.license_token,
+        media: [
+            {
+                type: 'FULL',
+                formats: [
+                    {
+                        cipher: 'BF_CBC_STRIPE',
+                        format: 'MP3_128',
+                    },
+                    {
+                        cipher: 'BF_CBC_STRIPE',
+                        format: 'MP3_64',
+                    },
+                    {
+                        cipher: 'BF_CBC_STRIPE',
+                        format: 'MP3_MISC'
+                    }
+                ],
+            },
+        ],
+        track_tokens: [token],
+    })
+}
+
+function needUpdateToken(data: any): boolean {
+    return !!data.error.VALID_TOKEN_REQUIRED;
+}
+
+export async function setDeezerOptions(options: { blowfish: string }) {
+    const { license_token, api_token, session_id } = await getCredentials();
+    deezerData = {
+        blowfish: options.blowfish,
+        license_token,
+        api_token,
+        session_id,
+    }
+}
+
+async function getCredentials(): Promise<{ license_token: string; api_token: string; session_id: string }> {
+    const data = await request('https://www.deezer.com/ajax/gw-light.php?api_token&method=deezer.getUserData&input=3&api_version=1.0&cid=550330597', {
+        method: 'POST',
+        body: ''
+    }).catch((err) => {
+        return err;
+    });
+    if (data instanceof Error) throw data;
+    const json = JSON.parse(data);
+    return {
+        api_token: json.results.checkForm,
+        license_token: json.results.USER.OPTIONS.license_token,
+        session_id: json.results.SESSION_ID
+    }
 }
 
 export { DeezerTrack, DeezerAlbum, DeezerPlaylist };

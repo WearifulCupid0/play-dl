@@ -45,7 +45,9 @@ import {
     DeezerTrack,
     DeezerPlaylist,
     DeezerAlbum,
-    dz_search
+    dz_search,
+    stream as dz_stream,
+    stream_from_info as dz_stream_info
 } from './Deezer';
 import { setToken } from './token';
 
@@ -74,22 +76,31 @@ interface SearchOptions {
     unblurNSFWThumbnails?: boolean;
 }
 
+export interface StreamOptions {
+    htmldata?: boolean;
+    quality?: number;
+    discordPlayerCompatibility?: boolean;
+}
+
 import { createInterface } from 'node:readline';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { stream as yt_stream, StreamOptions, stream_from_info as yt_stream_info } from './YouTube/stream';
+import { stream as yt_stream, stream_from_info as yt_stream_info } from './YouTube/stream';
 import { yt_search } from './YouTube/search';
 import { EventEmitter } from 'stream';
+import { DeezerStream } from './Deezer/classes';
 
 async function stream(url: string, options: { seek?: number } & StreamOptions): Promise<YouTubeStream>;
-async function stream(url: string, options?: StreamOptions): Promise<YouTubeStream | SoundCloudStream>;
+async function stream(url: string, options?: StreamOptions): Promise<YouTubeStream | SoundCloudStream | DeezerStream>;
 /**
- * Creates a Stream [ YouTube or SoundCloud ] class from a url for playing.
+ * Creates a Stream [ YouTube, SoundCloud or Deezer ] class from a url for playing.
  *
  * Example
  * ```ts
  * const source = await play.stream('youtube video URL') // YouTube Video Stream
  *
  * const source = await play.stream('soundcloud track URL') // SoundCloud Track Stream
+ * 
+ * const source = await play.stream('deezer track URL', { deezerBlowfish: 'blowfish' }) // Deezer Track Stream
  *
  * const source = await play.stream('youtube video URL', { seek : 45 }) // Seeks 45 seconds (approx.) in YouTube Video Stream
  *
@@ -106,9 +117,10 @@ async function stream(url: string, options?: StreamOptions): Promise<YouTubeStre
  *  - `boolean` htmldata : given data is html data or not
  *  - `number` precache : No of segments of data to store before looping [YouTube Live Stream only]. [ Defaults to 3 ]
  *  - `boolean` discordPlayerCompatibility : Conversion of Webm to Opus [ Defaults to false ]
- * @returns A {@link YouTubeStream} or {@link SoundCloudStream} Stream to play
+ *  - ``string` deezerBlowfish : Blowfish used to decode Deezer tracks
+ * @returns A {@link YouTubeStream}, {@link SoundCloudStream} of {@link DeezerStream} Stream to play
  */
-async function stream(url: string, options: StreamOptions = {}): Promise<YouTubeStream | SoundCloudStream> {
+async function stream(url: string, options: StreamOptions = {}): Promise<YouTubeStream | SoundCloudStream | DeezerStream> {
     const url_ = url.trim();
     if (url_.length === 0) throw new Error('Stream URL has a length of 0. Check your url again.');
     if (options.htmldata) return await yt_stream(url_, options);
@@ -117,11 +129,7 @@ async function stream(url: string, options: StreamOptions = {}): Promise<YouTube
             'Streaming from Spotify is not supported. Please use search() to find a similar track on YouTube or SoundCloud instead.'
         );
     }
-    if (url_.indexOf('deezer') !== -1) {
-        throw new Error(
-            'Streaming from Deezer is not supported. Please use search() to find a similar track on YouTube or SoundCloud instead.'
-        );
-    }
+    if (url_.indexOf('deezer') !== -1) return await dz_stream(url_);
     if (url_.indexOf('soundcloud') !== -1) return await so_stream(url_, options.quality);
     else return await yt_stream(url_, options);
 }
@@ -254,10 +262,11 @@ async function stream_from_info(info: InfoData, options?: StreamOptions): Promis
  * @returns A {@link YouTubeStream} or {@link SoundCloudStream} Stream to play
  */
 async function stream_from_info(
-    info: InfoData | SoundCloudTrack,
+    info: InfoData | SoundCloudTrack | DeezerTrack,
     options: StreamOptions = {}
-): Promise<YouTubeStream | SoundCloudStream> {
+): Promise<YouTubeStream | SoundCloudStream | DeezerStream> {
     if (info instanceof SoundCloudTrack) return await so_stream_info(info, options.quality);
+    else if (info instanceof DeezerTrack) return await dz_stream_info(info);
     else return await yt_stream_info(info, options);
 }
 /**
@@ -333,7 +342,7 @@ function authorization(): void {
             ask.close();
             return;
         }
-        ask.question('Choose your service - sc (for SoundCloud) / sp (for Spotify)  / yo (for YouTube): ', (msg) => {
+        ask.question('Choose your service - sc (for SoundCloud) / sp (for Spotify)  / yo (for YouTube) / dz (for Deezer): ', (msg) => {
             if (msg.toLowerCase().startsWith('sp')) {
                 let client_id: string, client_secret: string, redirect_url: string, market: string;
                 ask.question('Start by entering your Client ID : ', (id) => {
@@ -424,6 +433,23 @@ function authorization(): void {
                     writeFileSync('.data/youtube.data', JSON.stringify({ cookie }, undefined, 4));
                     ask.close();
                 });
+            } else if (msg.toLowerCase().startsWith('dz')) {
+                if (!file) {
+                    console.log('You already had blowfish, just paste that in setToken function.');
+                    ask.close();
+                    return;
+                }
+                ask.question('Blowfish :', (blowfish: string) => {
+                    if (!blowfish || blowfish.length === 0) {
+                        console.log("You didn't provide a blowfish. Try again...");
+                        ask.close();
+                        return;
+                    }
+                    if (!existsSync('.data')) mkdirSync('.data');
+                    console.log('Blowfish has been added successfully.');
+                    writeFileSync('.data/deezer.data', JSON.stringify({ blowfish }, undefined, 4));
+                    ask.close();
+                })
             } else {
                 console.log("That option doesn't exist. Try again...");
                 ask.close();
@@ -470,6 +496,7 @@ function attachListeners(player: EventEmitter, resource: YouTubeStream | SoundCl
 export {
     DeezerAlbum,
     DeezerPlaylist,
+    DeezerStream,
     DeezerTrack,
     SoundCloudPlaylist,
     SoundCloudStream,
@@ -513,6 +540,7 @@ export { Deezer, YouTube, SoundCloud, Spotify, YouTubeStream };
 export default {
     DeezerAlbum,
     DeezerPlaylist,
+    DeezerStream,
     DeezerTrack,
     SoundCloudPlaylist,
     SoundCloudStream,

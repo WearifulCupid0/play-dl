@@ -1,4 +1,8 @@
-import { request } from '../Request';
+import { createDecipheriv } from 'node:crypto';
+import { IncomingMessage } from 'node:http';
+import { Readable } from 'node:stream';
+import { request, request_stream } from '../Request';
+import { StreamType } from '../YouTube/stream';
 
 /**
  * Interface representing an image on Deezer
@@ -798,6 +802,102 @@ export class DeezerPlaylist {
             fans: this.fans,
             tracks: this.tracks.map((track) => track.toJSON())
         };
+    }
+}
+
+/**
+ * Represents a stream from Deezer.
+ */
+export class DeezerStream {
+    /**
+     * Readable Stream through which data passes
+     */
+    stream: Readable;
+    /**
+     * Type of audio data that we recieved from normal deezer url.
+     */
+    type = StreamType.Arbitrary; // Deezer will be always an arbitrary stream.
+    /**
+     * Deezer media url.
+     */
+    private url: string;
+    /**
+     * The unique key to decode this track, created with track id and blowfish.
+     */
+    private decryptKey: string;
+    /**
+     * Incoming message that we recieve.
+     *
+     * Storing this is essential.
+     * This helps to destroy the TCP connection completely if you stopped player in between the stream
+     * @private
+     */
+    private request: IncomingMessage | null;
+
+    constructor (url: string, decryptKey: string) {
+        this.stream = new Readable({ highWaterMark: 16 * 1000 * 1000, read() {} });
+        this.url = url;
+        this.decryptKey = decryptKey;
+        this.request = null;
+        this.stream.on("close", () => {
+            this.cleanup();
+        });
+        this.start();
+    }
+
+    /**
+     * This cleans every used variable in class.
+     *
+     * This is used to prevent re-use of this class and helping garbage collector to collect it.
+     */
+    private cleanup() {
+        this.request?.removeAllListeners();
+        this.request?.destroy();
+        this.url = '';
+        this.request = null;
+    }
+
+    private async start() {
+        const request = await request_stream(this.url).catch((err: Error) => {
+            return err;
+        });
+        if (request instanceof Error) throw request;
+        this.request = request;
+        let index = 0;
+        this.request
+            .on("readable", () => {
+                let chunk;
+                while ((chunk = this.request?.read(2048))) {
+                    if (index % 3 > 0 || chunk.length < 2048) {
+                        this.stream.push(chunk);
+                    } else {
+                        const decrypt = createDecipheriv(
+                            "bf-cbc",
+                            this.decryptKey,
+                            "\x00\x01\x02\x03\x04\x05\x06\x07"
+                        );
+                        decrypt.setAutoPadding(false);
+                        let chunkDec = decrypt.update(
+                            chunk.toString("hex"),
+                            "hex",
+                            "hex"
+                        );
+                        chunkDec += decrypt.final("hex");
+                        this.stream.push(chunkDec, "hex");
+                    }
+                    index++;
+                }
+            })
+            .on("end", () => {
+                this.cleanup();
+                this.stream.push(null);
+                return;
+            })
+            .on("error", (err) => {
+                this.cleanup();
+                this.stream.emit("error", err);
+                return;
+            });
     }
 }
 

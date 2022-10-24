@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
 import { IncomingMessage } from 'node:http';
-import { parseAudioFormats, StreamOptions, StreamType } from '../stream';
+import { parseAudioFormats, YoutubeStreamOptions, StreamType } from '../stream';
 import { request, request_stream } from '../../Request';
 import { video_stream_info } from '../utils/extractor';
 import { URL } from 'node:url';
@@ -261,7 +261,7 @@ export class Stream {
         duration: number,
         contentLength: number,
         video_url: string,
-        options: StreamOptions
+        options: YoutubeStreamOptions
     ) {
         this.stream = new Readable({ highWaterMark: 5 * 1000 * 1000, read() {} });
         this.url = url;

@@ -3,7 +3,8 @@
 A **light-weight** YouTube, SoundCloud, Spotify and Deezer streaming and searching library.
 
 -   Search by video, playlist/album, channel/artist
--   Stream audio from YouTube and SoundCloud
+-   Stream audio from YouTube or SoundCloud
+-   Stream from Deezer if a valid blowfish key is provided
 
 # Why play-dl ?
 

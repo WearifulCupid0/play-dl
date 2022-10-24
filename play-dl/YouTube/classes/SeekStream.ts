@@ -1,6 +1,6 @@
 import { IncomingMessage } from 'node:http';
 import { request_stream } from '../../Request';
-import { parseAudioFormats, StreamOptions, StreamType } from '../stream';
+import { parseAudioFormats, YoutubeStreamOptions, StreamType } from '../stream';
 import { video_stream_info } from '../utils/extractor';
 import { Timer } from './LiveStream';
 import { WebmSeeker, WebmSeekerState } from './WebmSeeker';
@@ -74,7 +74,7 @@ export class SeekStream {
         contentLength: number,
         bitrate: number,
         video_url: string,
-        options: StreamOptions
+        options: YoutubeStreamOptions
     ) {
         this.stream = new WebmSeeker(options.seek!, {
             highWaterMark: 5 * 1000 * 1000,

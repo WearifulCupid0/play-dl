@@ -4,6 +4,7 @@ import { SeekStream } from './classes/SeekStream';
 import { InfoData, StreamInfoData } from './utils/constants';
 import { video_stream_info } from './utils/extractor';
 import { URL } from 'node:url';
+import { StreamOptions } from '../';
 
 export enum StreamType {
     Arbitrary = 'arbitrary',
@@ -13,13 +14,10 @@ export enum StreamType {
     Opus = 'opus'
 }
 
-export interface StreamOptions {
+export interface YoutubeStreamOptions extends StreamOptions {
     seek?: number;
-    quality?: number;
     language?: string;
-    htmldata?: boolean;
     precache?: number;
-    discordPlayerCompatibility?: boolean;
 }
 
 /**
@@ -49,7 +47,7 @@ export type YouTubeStream = Stream | LiveStream | SeekStream;
  * @param options lets you add quality for stream
  * @returns Stream class with type and stream for playing.
  */
-export async function stream(url: string, options: StreamOptions = {}): Promise<YouTubeStream> {
+export async function stream(url: string, options: YoutubeStreamOptions = {}): Promise<YouTubeStream> {
     const info = await video_stream_info(url, { htmldata: options.htmldata, language: options.language });
     return await stream_from_info(info, options);
 }
@@ -61,7 +59,7 @@ export async function stream(url: string, options: StreamOptions = {}): Promise<
  */
 export async function stream_from_info(
     info: InfoData | StreamInfoData,
-    options: StreamOptions = {}
+    options: YoutubeStreamOptions = {}
 ): Promise<YouTubeStream> {
     if (info.format.length === 0)
         throw new Error('Upcoming and premiere videos that are not currently live cannot be streamed.');
